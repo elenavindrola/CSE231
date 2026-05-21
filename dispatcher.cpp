@@ -66,12 +66,12 @@ static Target pick_target() {
     munmap(const_cast<PowerState*>(shm), SHM_SIZE);
 
     if (ps.throttle) {
-        fprintf(stderr, "[dispatcher] throttle! temp=%.1f°C cpu=%.1fW → FPGA\n",
+        fprintf(stderr, "[dispatcher] throttle! temp=%.1f°C cpu=%.1fW -> FPGA\n",
                 ps.temp_max_c, ps.cpu_total_watts);
         return Target::FPGA;
     }
 
-    fprintf(stderr, "[dispatcher] temp=%.1f°C cpu=%.1fW → QEMU\n",
+    fprintf(stderr, "[dispatcher] temp=%.1f°C cpu=%.1fW -> QEMU\n",
             ps.temp_max_c, ps.cpu_total_watts);
     return Target::QEMU;
 }

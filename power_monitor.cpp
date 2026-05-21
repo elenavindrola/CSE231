@@ -188,7 +188,7 @@ static PowerState* open_shm_write() {
 static void shm_write(PowerState* ps,
                       float temp_c, float cpu_w, float fpga_w, bool throttle) {
     auto seq = ps->seq.load(std::memory_order_relaxed);
-    ps->seq.store(seq + 1, std::memory_order_release);   // odd → write in progress
+    ps->seq.store(seq + 1, std::memory_order_release);   // odd -> write in progress
 
     ps->temp_max_c      = temp_c;
     ps->cpu_total_watts = cpu_w;
@@ -197,7 +197,7 @@ static void shm_write(PowerState* ps,
     ps->timestamp_us    = duration_cast<microseconds>(
                               system_clock::now().time_since_epoch()).count();
 
-    ps->seq.store(seq + 2, std::memory_order_release);   // even → write done
+    ps->seq.store(seq + 2, std::memory_order_release);   // even -> write done
 }
 
 // main 
@@ -217,7 +217,7 @@ int main(int argc, char* argv[]) {
     if (!once) {
         shm = open_shm_write();
         if (!shm) return 1;
-        fprintf(stderr, "Monitor running → shm '%s'  (ctrl-C to stop)\n", SHM_NAME);
+        fprintf(stderr, "Monitor running -> shm '%s'  (ctrl-C to stop)\n", SHM_NAME);
     }
 
     auto prev_ts = steady_clock::now();
