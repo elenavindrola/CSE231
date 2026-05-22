@@ -1,4 +1,4 @@
-# Power and Temperature Aware Dispatcher for Load Balancing
+# Power and Temperature Aware Dispatcher for Load Balancing QEMU and FPGA
  
 Routes RISC-V binaries to QEMU or FPGA based on CPU power and thermal state.
  
