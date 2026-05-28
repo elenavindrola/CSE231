@@ -82,7 +82,7 @@ static std::vector<RaplDomain> find_rapl_domains() {
     }
     return out;
 }
-
+// Calculate power from energy readings
 static float sample_rapl_watts(std::vector<RaplDomain>& domains, float elapsed_s) {
     float total = 0.0f;
     for (auto& d : domains) {
@@ -120,14 +120,13 @@ static std::vector<ThermalZone> find_thermal_zones() {
         std::ifstream lf(e.path() / "type");
         std::getline(lf, label);
 
-        // prefer CPU-related zones
+        // only consider CPU-related zones (no GPU, battery, SSD or other thermal readings)
         bool cpu = label.find("x86") != std::string::npos ||
                    label.find("cpu") != std::string::npos ||
                    label.find("pkg") != std::string::npos ||
                    label.find("core") != std::string::npos ||
                    label.find("acpitz") != std::string::npos;
-        if (cpu) out.insert(out.begin(), {label, tp});
-        else     out.push_back({label, tp});
+        if (cpu) out.push_back({label, tp});
     }
     return out;
 }
@@ -141,6 +140,7 @@ static float max_temp_c(const std::vector<ThermalZone>& zones) {
     return max;
 }
 
+// HERE
 // FPGA power (best-effort via xbutil) 
 
 static float read_fpga_watts() {
