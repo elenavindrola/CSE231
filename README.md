@@ -33,8 +33,8 @@ The dispatcher prints which backend was chosen, for example:
  
 | Condition | Backend |
 |-|-|
-| T < 85°C and cpu < 65W | QEMU |
-| T > 85°C or cpu > 65W | FPGA |
+| T < 85°C and cpu < 80W | QEMU |
+| T > 85°C or cpu > 80W | FPGA |
 | monitor not running | QEMU (safe default) |
  
 ## Dependencies

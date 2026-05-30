@@ -29,7 +29,7 @@ using namespace std::chrono;
 // config 
 
 static constexpr float    THERMAL_LIMIT_C  = 85.0f;
-static constexpr float    POWER_LIMIT_W    = 65.0f;
+static constexpr float    POWER_LIMIT_W    = 80.0f;
 static constexpr int      POLL_MS          = 100;
 
 // helpers 
@@ -140,7 +140,6 @@ static float max_temp_c(const std::vector<ThermalZone>& zones) {
     return max;
 }
 
-// HERE
 // FPGA power (best-effort via xbutil) 
 
 static float read_fpga_watts() {
@@ -200,6 +199,7 @@ static void shm_write(PowerState* ps,
     ps->seq.store(seq + 2, std::memory_order_release);   // even -> write done
 }
 
+//HERE
 // main 
 
 int main(int argc, char* argv[]) {
