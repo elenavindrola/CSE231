@@ -26,15 +26,15 @@ sleep 3
  
 The dispatcher prints which backend was chosen, for example:
 ```
-[dispatcher] temp=63.0°C cpu=2.2W -> QEMU
+[dispatcher] temp=63.0 Celsius cpu=2.2W -> QEMU
 ```
  
 ## Routing logic
  
 | Condition | Backend |
 |-|-|
-| T < 85°C and cpu < 80W | QEMU |
-| T > 85°C or cpu > 80W | FPGA |
+| T < 85 Celsius and cpu < 80W | QEMU |
+| T > 85 Celsius or cpu > 80W | FPGA |
 | monitor not running | QEMU (safe default) |
  
 ## Dependencies

@@ -199,7 +199,6 @@ static void shm_write(PowerState* ps,
     ps->seq.store(seq + 2, std::memory_order_release);   // even -> write done
 }
 
-//HERE
 // main 
 
 int main(int argc, char* argv[]) {
@@ -238,9 +237,9 @@ int main(int argc, char* argv[]) {
         bool throttle = (temp_c > THERMAL_LIMIT_C) || (cpu_w > POWER_LIMIT_W);
 
         if (once) {
-            printf("temp_max_c:      %.1f°C  (limit %.0f°C)\n", temp_c, THERMAL_LIMIT_C);
+            printf("temp_max_c:      %.1f Celsius  (limit %.0f Celsius)\n", temp_c, THERMAL_LIMIT_C);
             printf("cpu_total_watts: %.2f W  (limit %.0f W)\n", cpu_w,  POWER_LIMIT_W);
-            printf("throttle:        %s\n", throttle ? "YES" : "no");
+            printf("Exceed Limit:        %s\n", throttle ? "YES" : "no");
             return 0;
         }
 
