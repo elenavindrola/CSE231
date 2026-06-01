@@ -18,7 +18,7 @@ sudo ./power_monitor &
 #sleep to give sampling time
 sleep 3
  
-# 2. run a RISC-V (gcc-riscv64-linux-gnu) binary through the dispatcher
+# 2. run a RISC-V (gcc-riscv64-unknown-elf) binary through the dispatcher
 ./dispatcher <riscv-binary>
 # example with a hello world binary
 ./dispatcher ./hello
@@ -40,7 +40,7 @@ The dispatcher prints which backend was chosen, for example:
 ## Dependencies
  
 ```bash
-sudo apt-get install -y g++ qemu-user-static gcc-riscv64-linux-gnu
+sudo apt-get install -y g++ qemu-system-misc gcc-riscv64-unknown-elf
 ```
  
 ## Notes
