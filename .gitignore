@@ -1,0 +1,12 @@
+# Build output
+/build/
+qemu/build/
+
+# Compiled binaries
+/dispatcher
+/power_monitor
+
+# Editor / OS cruft
+*.o
+*.swp
+.DS_Store
