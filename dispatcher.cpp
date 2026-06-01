@@ -1,8 +1,9 @@
 // dispatcher.cpp — binfmt_misc entry point
 // Reads power state from shared memory, routes binary to QEMU or FPGA.
-// Build:   g++ -O2 -std=c++20 dispatcher.cpp -o dispatcher -lrt
+// Build:   cmake -B build && cmake --build build   (target: dispatcher)
 
 #include "power_state_shm.h"
+#include "qemu_executor.h"
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -11,6 +12,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -83,25 +85,31 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const char* binary = argv[1];
+    const std::string binary = argv[1];
+    std::vector<std::string> args;
+    for (int i = 2; i < argc; i++) args.emplace_back(argv[i]);
 
+    // Pick a concrete backend by power state. Both backends implement the
+    // same IExecutionBackend interface, so everything below is backend-agnostic
+    // — which is what later lets us checkpoint() one and restore() the other
+    // when the power state flips mid-run.
+    std::unique_ptr<IExecutionBackend> backend;
     switch (pick_target()) {
-        case Target::QEMU: {
-            std::vector<const char*> args = {"qemu-riscv64-static", binary};
-            for (int i = 2; i < argc; i++) args.push_back(argv[i]);
-            args.push_back(nullptr);
-            execvp("qemu-riscv64-static", const_cast<char* const*>(args.data()));
-            perror("execvp qemu-riscv64");
-            return 1;
-        }
+        case Target::QEMU:
+            backend = std::make_unique<QemuExecutor>();
+            break;
 
-        case Target::FPGA: {
-            fprintf(stderr, "[dispatcher] FPGA path not yet implemented, falling back to QEMU\n");
-            std::vector<const char*> args = {"qemu-riscv64-static", binary};
-            for (int i = 2; i < argc; i++) args.push_back(argv[i]);
-            args.push_back(nullptr);
-            execvp("qemu-riscv64-static", const_cast<char* const*>(args.data()));
-            return 1;
-        }
+        case Target::FPGA:
+            // FpgaExecutor will slot in here once it implements IExecutionBackend.
+            fprintf(stderr, "[dispatcher] FPGA backend not yet implemented, falling back to QEMU\n");
+            backend = std::make_unique<QemuExecutor>();
+            break;
     }
+
+    if (!backend->launch(binary, args)) {
+        fprintf(stderr, "[dispatcher] failed to launch %s\n", binary.c_str());
+        return 1;
+    }
+
+    return backend->wait();
 }
