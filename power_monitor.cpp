@@ -26,11 +26,11 @@
 namespace fs = std::filesystem;
 using namespace std::chrono;
 
-// config 
+// config (defaults; override with --temp-limit / --power-limit)
 
-static constexpr float    THERMAL_LIMIT_C  = 85.0f;
-static constexpr float    POWER_LIMIT_W    = 80.0f;
-static constexpr int      POLL_MS          = 100;
+static float              g_thermal_limit_c = 85.0f;
+static float              g_power_limit_w   = 80.0f;
+static constexpr int      POLL_MS           = 100;
 
 // helpers 
 
@@ -128,6 +128,26 @@ static std::vector<ThermalZone> find_thermal_zones() {
                    label.find("acpitz") != std::string::npos;
         if (cpu) out.push_back({label, tp});
     }
+
+    // AMD desktop chips (e.g. Ryzen 5700G) expose CPU temperature via hwmon
+    // (k10temp Tctl/Tdie), not /sys/class/thermal — Intel coretemp likewise
+    // when ACPI zones are absent. Collect those sensors too.
+    const fs::path hwmon = "/sys/class/hwmon";
+    if (fs::exists(hwmon)) {
+        for (auto& e : fs::directory_iterator(hwmon)) {
+            std::string chip;
+            std::ifstream nf(e.path() / "name");
+            std::getline(nf, chip);
+            if (chip != "k10temp" && chip != "zenpower" && chip != "coretemp")
+                continue;
+            for (auto& s : fs::directory_iterator(e.path())) {
+                const std::string fn = s.path().filename().string();
+                if (fn.rfind("temp", 0) == 0 &&
+                    fn.size() > 6 && fn.compare(fn.size() - 6, 6, "_input") == 0)
+                    out.push_back({chip + "/" + fn, s.path()});
+            }
+        }
+    }
     return out;
 }
 
@@ -176,10 +196,43 @@ static PowerState* open_shm_write() {
 
     // zero-initialise (including the atomic seq counter)
     memset(ps, 0, SHM_SIZE);
-    ps->thermal_limit_c = THERMAL_LIMIT_C;
-    ps->power_limit_w   = POWER_LIMIT_W;
+    ps->thermal_limit_c = g_thermal_limit_c;
+    ps->power_limit_w   = g_power_limit_w;
     ps->fpga_watts      = -1.0f;
     return ps;
+}
+
+// --watch: follow the daemon's shared memory (no root needed) — handy while
+// driving a load scenario to see exactly when the dispatcher would flip to FPGA.
+static int watch_shm() {
+    int fd = shm_open(SHM_NAME, O_RDONLY, 0);
+    if (fd < 0) {
+        fprintf(stderr, "no shared memory '%s' — is the monitor running?\n", SHM_NAME);
+        return 1;
+    }
+    auto* ps = static_cast<const PowerState*>(
+        mmap(nullptr, SHM_SIZE, PROT_READ, MAP_SHARED, fd, 0));
+    close(fd);
+    if (ps == MAP_FAILED) { perror("mmap"); return 1; }
+
+    for (;;) {
+        // seqlock read (same protocol as the dispatcher)
+        float temp, cpu_w; bool throttle;
+        for (;;) {
+            uint32_t s1 = ps->seq.load(std::memory_order_acquire);
+            if (s1 & 1) continue;
+            temp     = ps->temp_max_c;
+            cpu_w    = ps->cpu_total_watts;
+            throttle = ps->throttle;
+            uint32_t s2 = ps->seq.load(std::memory_order_acquire);
+            if (s1 == s2) break;
+        }
+        printf("temp=%5.1fC (limit %.0f)  cpu=%6.2fW (limit %.0f)  -> %s\n",
+               temp, ps->thermal_limit_c, cpu_w, ps->power_limit_w,
+               throttle ? "FPGA" : "QEMU");
+        fflush(stdout);
+        std::this_thread::sleep_for(milliseconds(1000));
+    }
 }
 
 // Seqlock write: increment seq to odd before write, even after.
@@ -202,7 +255,20 @@ static void shm_write(PowerState* ps,
 // main 
 
 int main(int argc, char* argv[]) {
-    bool once = argc > 1 && std::string(argv[1]) == "--once";
+    bool once = false;
+    for (int i = 1; i < argc; i++) {
+        std::string a = argv[i];
+        if (a == "--once")  once = true;
+        else if (a == "--watch") return watch_shm();
+        else if (a == "--temp-limit"  && i + 1 < argc) g_thermal_limit_c = std::atof(argv[++i]);
+        else if (a == "--power-limit" && i + 1 < argc) g_power_limit_w   = std::atof(argv[++i]);
+        else {
+            fprintf(stderr,
+                    "usage: power_monitor [--once] [--watch] "
+                    "[--temp-limit C] [--power-limit W]\n");
+            return 1;
+        }
+    }
 
     auto domains = find_rapl_domains();
     auto zones   = find_thermal_zones();
@@ -234,11 +300,11 @@ int main(int argc, char* argv[]) {
         float temp_c = max_temp_c(zones);
         float fpga_w = -1.0f;   // poll FPGA less often (expensive popen)
 
-        bool throttle = (temp_c > THERMAL_LIMIT_C) || (cpu_w > POWER_LIMIT_W);
+        bool throttle = (temp_c > g_thermal_limit_c) || (cpu_w > g_power_limit_w);
 
         if (once) {
-            printf("temp_max_c:      %.1f Celsius  (limit %.0f Celsius)\n", temp_c, THERMAL_LIMIT_C);
-            printf("cpu_total_watts: %.2f W  (limit %.0f W)\n", cpu_w,  POWER_LIMIT_W);
+            printf("temp_max_c:      %.1f Celsius  (limit %.0f Celsius)\n", temp_c, g_thermal_limit_c);
+            printf("cpu_total_watts: %.2f W  (limit %.0f W)\n", cpu_w,  g_power_limit_w);
             printf("Exceed Limit:        %s\n", throttle ? "YES" : "no");
             return 0;
         }
