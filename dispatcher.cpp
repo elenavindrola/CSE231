@@ -4,6 +4,7 @@
 
 #include "power_state_shm.h"
 #include "qemu_executor.h"
+#include "fpga_executor.h"
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -11,6 +12,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -61,6 +63,20 @@ static const PowerState* open_shm_read() {
 enum class Target { QEMU, FPGA };
 
 static Target pick_target() {
+    // Manual override for testing/debugging: DISPATCHER_TARGET=qemu|fpga
+    // bypasses the power-state routing.
+    if (const char* force = getenv("DISPATCHER_TARGET")) {
+        if (strcmp(force, "fpga") == 0) {
+            fprintf(stderr, "[dispatcher] DISPATCHER_TARGET=fpga -> FPGA\n");
+            return Target::FPGA;
+        }
+        if (strcmp(force, "qemu") == 0) {
+            fprintf(stderr, "[dispatcher] DISPATCHER_TARGET=qemu -> QEMU\n");
+            return Target::QEMU;
+        }
+        fprintf(stderr, "[dispatcher] ignoring unknown DISPATCHER_TARGET=%s\n", force);
+    }
+
     const auto* shm = open_shm_read();
     if (!shm) return Target::QEMU;  // monitor not running, safe default
 
@@ -99,11 +115,22 @@ int main(int argc, char* argv[]) {
             backend = std::make_unique<QemuExecutor>();
             break;
 
-        case Target::FPGA:
-            // FpgaExecutor will slot in here once it implements IExecutionBackend.
-            fprintf(stderr, "[dispatcher] FPGA backend not yet implemented, falling back to QEMU\n");
-            backend = std::make_unique<QemuExecutor>();
-            break;
+        case Target::FPGA: {
+            fpgaexec::FpgaConfig cfg;
+            // Optional device tree blob, DMAed to 0x88000000 before release.
+            if (const char* dtb = getenv("FPGA_DTB")) cfg.dtb_path = dtb;
+            backend = std::make_unique<FpgaExecutor>(std::move(cfg));
+
+            // FpgaExecutor::launch fails fast when the binary isn't a baremetal
+            // FK33 ELF or the card is absent — fall back to QEMU rather than
+            // refusing to run.
+            if (!backend->launch(binary, args)) {
+                fprintf(stderr, "[dispatcher] FPGA launch failed, falling back to QEMU\n");
+                backend = std::make_unique<QemuExecutor>();
+                break;
+            }
+            return backend->wait();
+        }
     }
 
     if (!backend->launch(binary, args)) {

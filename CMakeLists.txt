@@ -14,11 +14,15 @@ enable_testing()  # aggregate qemu/'s tests so `ctest` works from the root build
 # and the USE_PROC_MEM compile definition.
 add_subdirectory(qemu)
 
+# FPGA execution backend (fpga_core: FpgaExecutor over the cva6_fk33
+# submodule's libfpgaexec).
+add_subdirectory(fpga)
+
 # Dispatcher — the binfmt_misc entry point and single routing point.
 # Reads power state from shared memory and routes the guest binary to a
-# concrete IExecutionBackend (QemuExecutor today, FpgaExecutor later).
+# concrete IExecutionBackend (QemuExecutor or FpgaExecutor).
 add_executable(dispatcher dispatcher.cpp)
-target_link_libraries(dispatcher PRIVATE sched_core rt)
+target_link_libraries(dispatcher PRIVATE sched_core fpga_core rt)
 
 # power_monitor — writes power state into shared memory for the dispatcher.
 add_executable(power_monitor power_monitor.cpp)

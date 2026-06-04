@@ -1,0 +1,3 @@
+[submodule "cva6_fk33"]
+	path = cva6_fk33
+	url = git@github.com:aebarthyi/cva6_fk33.git
