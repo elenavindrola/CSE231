@@ -12,8 +12,13 @@ add_library(fpgaexec STATIC
 )
 target_include_directories(fpgaexec PUBLIC ${FPGAEXEC_DIR}/include)
 
-# FpgaExecutor: IExecutionBackend (from sched_core's headers) over libfpgaexec.
-add_library(fpga_core STATIC fpga_executor.cpp)
+# FpgaExecutor / QemuVirtExecutor: IExecutionBackend (from sched_core's
+# headers) over libfpgaexec.
+add_library(fpga_core STATIC
+    fpgaexec_adapter.cpp
+    fpga_executor.cpp
+    qemu_virt_executor.cpp
+)
 target_include_directories(fpga_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(fpga_core
     PUBLIC fpgaexec sched_core
