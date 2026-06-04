@@ -4,6 +4,8 @@
 
 #include "power_state_shm.h"
 #include "qemu_executor.h"
+#include "fpga_executor.h"
+#include "qemu_virt_executor.h"
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -11,6 +13,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -61,6 +64,20 @@ static const PowerState* open_shm_read() {
 enum class Target { QEMU, FPGA };
 
 static Target pick_target() {
+    // Manual override for testing/debugging: DISPATCHER_TARGET=qemu|fpga
+    // bypasses the power-state routing.
+    if (const char* force = getenv("DISPATCHER_TARGET")) {
+        if (strcmp(force, "fpga") == 0) {
+            fprintf(stderr, "[dispatcher] DISPATCHER_TARGET=fpga -> FPGA\n");
+            return Target::FPGA;
+        }
+        if (strcmp(force, "qemu") == 0) {
+            fprintf(stderr, "[dispatcher] DISPATCHER_TARGET=qemu -> QEMU\n");
+            return Target::QEMU;
+        }
+        fprintf(stderr, "[dispatcher] ignoring unknown DISPATCHER_TARGET=%s\n", force);
+    }
+
     const auto* shm = open_shm_read();
     if (!shm) return Target::QEMU;  // monitor not running, safe default
 
@@ -68,14 +85,26 @@ static Target pick_target() {
     munmap(const_cast<PowerState*>(shm), SHM_SIZE);
 
     if (ps.throttle) {
-        fprintf(stderr, "[dispatcher] throttle! temp=%.1fCelsius cpu=%.1fW -> FPGA\n",
+        fprintf(stderr, "[dispatcher] throttle! temp = %.1f Celsius cpu = %.1fW -> FPGA\n",
                 ps.temp_max_c, ps.cpu_total_watts);
         return Target::FPGA;
     }
 
-    fprintf(stderr, "[dispatcher] temp=%.1fCelsius cpu=%.1fW -> QEMU\n",
+    fprintf(stderr, "[dispatcher] temp = %.1f Celsius cpu = %.1fW -> QEMU\n",
             ps.temp_max_c, ps.cpu_total_watts);
     return Target::QEMU;
+}
+
+// Baremetal FK33/virt ELFs enter at the bootrom's jump target (0x80000000);
+// anything else is a Linux user-space binary. The two classes need different
+// QEMU flavours: qemu-system (QemuVirtExecutor) vs qemu-user (QemuExecutor),
+// and only the baremetal class can run on the FPGA at all.
+static bool is_baremetal_elf(const std::string& binary) {
+    try {
+        return fpgaexec::loadElf(binary).entry == fpgaexec::AddressMap{}.entry;
+    } catch (const std::exception&) {
+        return false;  // not a parseable RV64 executable — let qemu-user decide
+    }
 }
 
 // entry point
@@ -89,26 +118,46 @@ int main(int argc, char* argv[]) {
     std::vector<std::string> args;
     for (int i = 2; i < argc; i++) args.emplace_back(argv[i]);
 
-    // Pick a concrete backend by power state. Both backends implement the
+    const bool baremetal = is_baremetal_elf(binary);
+
+    Target target = pick_target();
+    if (target == Target::FPGA && !baremetal) {
+        fprintf(stderr, "[dispatcher] %s is not a baremetal ELF, FPGA cannot run it -> QEMU\n",
+                binary.c_str());
+        target = Target::QEMU;
+    }
+
+    // Pick a concrete backend by power state. All backends implement the
     // same IExecutionBackend interface, so everything below is backend-agnostic
     // — which is what later lets us checkpoint() one and restore() the other
     // when the power state flips mid-run.
     std::unique_ptr<IExecutionBackend> backend;
-    switch (pick_target()) {
-        case Target::QEMU:
-            backend = std::make_unique<QemuExecutor>();
-            break;
+    if (target == Target::FPGA) {
+        fpgaexec::FpgaConfig cfg;
+        // Optional device tree blob, DMAed to 0x88000000 before release.
+        if (const char* dtb = getenv("FPGA_DTB")) cfg.dtb_path = dtb;
+        backend = std::make_unique<FpgaExecutor>(std::move(cfg));
 
-        case Target::FPGA:
-            // FpgaExecutor will slot in here once it implements IExecutionBackend.
-            fprintf(stderr, "[dispatcher] FPGA backend not yet implemented, falling back to QEMU\n");
-            backend = std::make_unique<QemuExecutor>();
-            break;
+        // FpgaExecutor::launch fails fast when the card is absent or the
+        // binary can't run on it — fall back to QEMU rather than refusing.
+        if (!backend->launch(binary, args)) {
+            fprintf(stderr, "[dispatcher] FPGA launch failed, falling back to QEMU\n");
+            backend.reset();
+            target = Target::QEMU;
+        }
     }
 
-    if (!backend->launch(binary, args)) {
-        fprintf(stderr, "[dispatcher] failed to launch %s\n", binary.c_str());
-        return 1;
+    if (target == Target::QEMU) {
+        // qemu-system for baremetal virt ELFs, qemu-user for Linux binaries.
+        if (baremetal)
+            backend = std::make_unique<QemuVirtExecutor>();
+        else
+            backend = std::make_unique<QemuExecutor>();
+
+        if (!backend->launch(binary, args)) {
+            fprintf(stderr, "[dispatcher] failed to launch %s\n", binary.c_str());
+            return 1;
+        }
     }
 
     return backend->wait();
