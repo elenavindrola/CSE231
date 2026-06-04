@@ -63,6 +63,38 @@ Baremetal virt ELFs go to `qemu-system-riscv64 -machine virt` (same device map
 as the FK33 bitstream); Linux user-space binaries go to `qemu-riscv64`
 (user-mode). Limits are tunable: `power_monitor --temp-limit C --power-limit W`.
 
+## Writing RISC-V binaries for the FPGA path (BSP requirement)
+
+A binary can only run on the FPGA (and on `qemu-system -machine virt`) if it is
+**baremetal and built against the BSP** in `cva6_fk33/sw/bsp/` — a plain
+Linux-targeted RISC-V binary will always route to user-mode QEMU instead. The
+BSP contract:
+
+- `#include "bsp.h"` — gives you `printf`/`uart_puts` (16550 UART0 @
+  `0x10000000`) and `_exit` via the SiFive finisher (`return 0` = PASS,
+  nonzero = FAIL with that code as the host exit code)
+- entry point is `int main(int hartid, void *dtb)`; the image **must** enter at
+  `0x80000000` (the bootrom's hardcoded jump target) — `bsp/virt.ld` +
+  `bsp/crt0.S` arrange this
+- compile **RV64IMAC only** (`-march=rv64imac_zicsr -mabi=lp64`): CVA6 on the
+  card has **no FPU**, a stray FP instruction traps/hangs the core. QEMU virt
+  is a superset, so the same binary still runs there as the golden reference
+- freestanding flags: `-nostdlib -nostartfiles -fno-builtin -ffreestanding
+  -mcmodel=medany -Wl,--build-id=none` (see `cva6_fk33/sw/Makefile`)
+
+Easiest flow — drop `examples/<name>/main.c` next to the others and add a rule
+in `cva6_fk33/sw/Makefile` (copy the `fib` one), then:
+
+```bash
+make -C cva6_fk33/sw examples/<name>/<name>.elf   # needs riscv64-unknown-elf- on PATH
+scripts/run_riscv.sh cva6_fk33/sw/examples/<name>/<name>.elf
+```
+
+Ready-made sanity kernels (all self-checking, PASS/FAIL via the finisher):
+`arith` (ALU/mul/div/atomics differential check), `fib` (recursion + stack),
+`memtest` (1 MiB DRAM/HBM window at +8 MiB), `sort` (heapsort, loads/stores +
+branches), `hello`.
+
 ## Demo: load the CPU until jobs migrate to the FPGA
 
 ```bash
