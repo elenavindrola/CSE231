@@ -53,8 +53,8 @@ Useful environment variables (both `run_riscv.sh` and `dispatcher`):
 
 | Condition | Backend |
 |-|-|
-| T < 85 Celsius and cpu < 80W | QEMU |
-| T > 85 Celsius or cpu > 80W | FPGA |
+| T < 85 Celsius and cpu < 70W | QEMU |
+| T > 85 Celsius or cpu > 70W | FPGA |
 | monitor not running | QEMU (safe default) |
 | binary is not a baremetal virt ELF (entry != `0x80000000`) | QEMU (FPGA cannot run it) |
 | FPGA launch fails (card absent / no permissions) | QEMU fallback |
